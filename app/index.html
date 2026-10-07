@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Project Pulse</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="dashboard" id="main-content">
+      <header class="dashboard-header">
+        <h1 class="dashboard-title">Project Pulse</h1>
+      </header>
+
+      <section class="projects-section" aria-labelledby="projects-title">
+        <div class="projects-header">
+          <h2 class="section-title" id="projects-title">Projects</h2>
+          <p class="project-count">Loading projects...</p>
+        </div>
+
+        <p class="dashboard-feedback" role="status" aria-live="polite" aria-atomic="true">Loading project updates...</p>
+        <button class="retry-button" type="button" hidden>Retry</button>
+        <ul class="project-list" aria-busy="true"></ul>
+      </section>
+
+      <noscript>
+        <p class="dashboard-feedback">Project Pulse needs JavaScript enabled to load project data.</p>
+      </noscript>
+    </main>
+
+    <script>
+      const projectList = document.querySelector('.project-list');
+      const feedback = document.querySelector('.dashboard-feedback');
+      const retryButton = document.querySelector('.retry-button');
+      const projectCount = document.querySelector('.project-count');
+
+      const statusLabels = {
+        'on-track': 'On track',
+        'at-risk': 'At risk',
+        blocked: 'Blocked',
+        complete: 'Complete',
+        unknown: 'Unknown'
+      };
+
+      const priorityLabels = {
+        high: 'High',
+        medium: 'Medium',
+        low: 'Low',
+        unknown: 'Unknown'
+      };
+
+      function normalizeToken(value, allowedValues) {
+        return allowedValues.includes(value) ? value : 'unknown';
+      }
+
+      function requireText(project, fieldName, index) {
+        const value = project[fieldName];
+
+        if (typeof value !== 'string' || value.trim() === '') {
+          throw new Error(`Project ${index + 1} is missing ${fieldName}.`);
+        }
+
+        return value.trim();
+      }
+
+      function validateProject(project, index) {
+        if (!project || typeof project !== 'object' || Array.isArray(project)) {
+          throw new Error(`Project ${index + 1} must be an object.`);
+        }
+
+        return {
+          name: requireText(project, 'name', index),
+          owner: requireText(project, 'owner', index),
+          status: requireText(project, 'status', index),
+          recentActivity: requireText(project, 'recentActivity', index),
+          priority: requireText(project, 'priority', index),
+          ownerAvatarUrl: typeof project.ownerAvatarUrl === 'string' ? project.ownerAvatarUrl.trim() : ''
+        };
+      }
+
+      function validateProjectsPayload(payload) {
+        if (!payload || typeof payload !== 'object' || !Array.isArray(payload.projects)) {
+          throw new Error('Project data must include a projects array.');
+        }
+
+        return payload.projects.map(validateProject);
+      }
+
+      function createDetail(className, label, valueNode, descriptionClassName = '') {
+        const wrapper = document.createElement('div');
+        wrapper.className = className;
+
+        const term = document.createElement('dt');
+        term.textContent = label;
+
+        const description = document.createElement('dd');
+        if (descriptionClassName) {
+          description.className = descriptionClassName;
+        }
+        description.append(valueNode);
+
+        wrapper.append(term, description);
+        return wrapper;
+      }
+
+      function getInitials(owner) {
+        return owner
+          .split(/\s+/)
+          .filter(Boolean)
+          .slice(0, 2)
+          .map((part) => part.charAt(0).toUpperCase())
+          .join('');
+      }
+
+      function createOwnerNode(project) {
+        const ownerWrapper = document.createElement('span');
+        ownerWrapper.className = 'owner-wrapper';
+
+        const avatar = document.createElement('span');
+        avatar.className = 'owner-avatar';
+        avatar.setAttribute('aria-hidden', 'true');
+
+        const initials = document.createElement('span');
+        initials.className = 'avatar-initials';
+        initials.textContent = getInitials(project.owner);
+        avatar.append(initials);
+
+        if (project.ownerAvatarUrl.startsWith('https://')) {
+          const image = document.createElement('img');
+          image.className = 'avatar-image';
+          image.alt = '';
+          image.width = 32;
+          image.height = 32;
+          image.loading = 'lazy';
+          image.src = project.ownerAvatarUrl;
+          image.addEventListener('load', () => image.classList.add('is-loaded'), { once: true });
+          image.addEventListener('error', () => image.remove(), { once: true });
+          avatar.append(image);
+        }
+
+        const ownerName = document.createElement('span');
+        ownerName.className = 'owner-name';
+        ownerName.textContent = project.owner;
+
+        ownerWrapper.append(avatar, ownerName);
+        return ownerWrapper;
+      }
+
+      function createBadge(className, dataAttributeName, rawValue, labels) {
+        const normalizedValue = normalizeToken(rawValue, Object.keys(labels).filter((value) => value !== 'unknown'));
+        const badge = document.createElement('span');
+        badge.className = className;
+        badge.setAttribute(dataAttributeName, normalizedValue);
+        badge.textContent = normalizedValue === 'unknown' ? rawValue : labels[normalizedValue];
+        return badge;
+      }
+
+      function createActivityNode(activity) {
+        return document.createTextNode(activity);
+      }
+
+      function createProjectCard(project) {
+        const card = document.createElement('li');
+        card.className = 'project-card';
+
+        const title = document.createElement('h3');
+        title.className = 'project-name';
+        title.textContent = project.name;
+
+        const details = document.createElement('dl');
+        details.className = 'project-details';
+        details.append(
+          createDetail('project-owner', 'Owner', createOwnerNode(project)),
+          createDetail('project-status', 'Status', createBadge('status-badge', 'data-status', project.status, statusLabels)),
+          createDetail('project-priority', 'Priority', createBadge('priority-badge', 'data-priority', project.priority, priorityLabels)),
+          createDetail('project-activity', 'Recent activity', createActivityNode(project.recentActivity), 'activity-text')
+        );
+
+        card.append(title, details);
+        return card;
+      }
+
+      function setLoadingState() {
+        projectList.replaceChildren();
+        projectList.setAttribute('aria-busy', 'true');
+        feedback.textContent = 'Loading project updates...';
+        projectCount.textContent = 'Loading projects...';
+        retryButton.hidden = true;
+      }
+
+      function setCompleteState(projects) {
+        projectList.setAttribute('aria-busy', 'false');
+        projectCount.textContent = `${projects.length} project${projects.length === 1 ? '' : 's'}`;
+        feedback.textContent = projects.length === 0 ? 'No projects to show yet.' : '';
+      }
+
+      function setErrorState(error) {
+        projectList.replaceChildren();
+        projectList.setAttribute('aria-busy', 'false');
+        projectCount.textContent = '0 projects';
+        feedback.textContent = `Unable to load project updates. ${error.message}`;
+        retryButton.hidden = false;
+      }
+
+      async function loadProjects() {
+        setLoadingState();
+
+        try {
+          const response = await fetch('project-data.json', { cache: 'no-store' });
+
+          if (!response.ok) {
+            throw new Error(`Request failed with status ${response.status}.`);
+          }
+
+          const projects = validateProjectsPayload(await response.json());
+          projectList.replaceChildren(...projects.map(createProjectCard));
+          setCompleteState(projects);
+        } catch (error) {
+          setErrorState(error);
+        }
+      }
+
+      retryButton.addEventListener('click', loadProjects);
+      loadProjects();
+    </script>
+  </body>
+</html>
