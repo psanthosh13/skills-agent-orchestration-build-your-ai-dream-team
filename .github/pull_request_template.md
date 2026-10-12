@@ -14,7 +14,7 @@
 - **Rollback / escalation plan:**
 
 ## Evidence
-- Workflow run(s):
+- Workflow run:
 - Scan results (if applicable):
 
 ## Review checklist
