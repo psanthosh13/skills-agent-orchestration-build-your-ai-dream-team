@@ -13,7 +13,7 @@ jobs:
 
       - name: Require plan artifact
         run: |
-          if [ ! -f "Github/pull_request_template.md" ]; then
+          if [ ! -f ".github/pull_request_template.md" ]; then
             echo "Github/pull_request_template.md is required for this pull request."
             exit 1
           fi
